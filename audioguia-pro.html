@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>AudioGuía Pro</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700&family=Syne+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#6c63ff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AudioGuía">
+<style>
+:root {
+  --bg: #0c0c0f;
+  --surface: #16161a;
+  --surface2: #1e1e24;
+  --surface3: #26262e;
+  --accent: #6c63ff;
+  --accent2: #ff6584;
+  --gold: #f5c518;
+  --green: #3ddc84;
+  --red: #ff4d4d;
+  --text: #e8e8f0;
+  --muted: #6b6b80;
+  --border: rgba(255,255,255,0.07);
+  --r: 12px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Syne', sans-serif; overflow-x: hidden; }
+
+/* ── SELECTOR DE ROL ── */
+#role-screen {
+  min-height: 100vh;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 32px; padding: 32px;
+  background: radial-gradient(ellipse at 50% 0%, #1a1040 0%, var(--bg) 70%);
+}
+#role-screen h1 { font-size: clamp(28px, 6vw, 48px); font-weight: 700; text-align: center; letter-spacing: -0.02em; }
+#role-screen h1 span { color: var(--accent); }
+#role-screen p { color: var(--muted); font-size: 15px; text-align: center; max-width: 380px; line-height: 1.6; }
+.role-cards { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.role-card {
+  width: 200px; padding: 28px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  cursor: pointer; text-align: center;
+  transition: all 0.25s;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.role-card:hover { border-color: var(--accent); background: var(--surface2); transform: translateY(-3px); }
+.role-icon { font-size: 40px; }
+.role-card h3 { font-size: 16px; font-weight: 600; }
+.role-card p { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.badge-guia { background: rgba(108,99,255,0.15); color: var(--accent); }
+.badge-rec  { background: rgba(61,220,132,0.12); color: var(--green); }
+.badge { font-size: 11px; font-family: 'Syne Mono', monospace; padding: 3px 10px; border-radius: 20px; margin-top: 4px; }
+
+/* ── LAYOUT PRINCIPAL ── */
+#app { display: none; min-height: 100vh; flex-direction: column; }
+#app.visible { display: flex; }
+
+/* Header */
+.app-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 100;
+}
+.app-header .logo { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; }
+.app-header .logo span { color: var(--accent); }
+.mode-badge {
+  font-family: 'Syne Mono', monospace; font-size: 11px;
+  padding: 4px 12px; border-radius: 20px;
+}
+.mode-badge.guia { background: rgba(108,99,255,0.2); color: var(--accent); }
+.mode-badge.receptor { background: rgba(61,220,132,0.15); color: var(--green); }
+.connection-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.connection-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); animation: pulse-g 2s infinite; }
+@keyframes pulse-g { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+/* ── MODO GUÍA ── */
+#guia-view { flex: 1; padding: 20px; display: none; flex-direction: column; gap: 16px; }
+#guia-view.active { display: flex; }
+
+/* Paradas */
+.section-title { font-size: 11px; font-family: 'Syne Mono', monospace; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px; }
+
+.paradas-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; }
+.parada-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; max-height: 200px; overflow-y: auto; }
+.parada-item {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2); border-radius: 8px; padding: 10px 14px;
+  cursor: pointer; transition: all 0.2s; border: 1px solid transparent;
+}
+.parada-item:hover { border-color: var(--accent); }
+.parada-item.activa { border-color: var(--accent); background: rgba(108,99,255,0.12); }
+.parada-num { font-family: 'Syne Mono', monospace; font-size: 11px; color: var(--accent); min-width: 24px; }
+.parada-name { font-size: 14px; flex: 1; }
+.parada-sub { font-size: 11px; color: var(--muted); }
+.add-parada { display: flex; gap: 8px; }
+.input-text {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 9px 14px;
+  color: var(--text); font-family: 'Syne', sans-serif; font-size: 14px; outline: none;
+  transition: border-color 0.2s;
+}
+.input-text:focus { border-color: var(--accent); }
+.input-text::placeholder { color: var(--muted); }
+.btn { border: none; border-radius: 8px; padding: 9px 16px; cursor: pointer; font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 600; transition: all 0.2s; }
+.btn-accent { background: var(--accent); color: #fff; }
+.btn-accent:hover { opacity: 0.85; }
+.btn-ghost { background: var(--surface3); color: var(--text); }
+.btn-ghost:hover { background: var(--surface2); }
+.btn-red { background: rgba(255,77,77,0.15); color: var(--red); border: 1px solid rgba(255,77,77,0.3); }
+.btn-red:hover { background: rgba(255,77,77,0.25); }
+
+/* Micrófono */
+.mic-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; text-align: center; }
+.mic-ring {
+  width: 88px; height: 88px; border-radius: 50%;
+  background: var(--surface3); border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 auto 16px; cursor: pointer; font-size: 36px;
+  transition: all 0.2s;
+}
+.mic-ring:hover { border-color: var(--accent); }
+.mic-ring.grabando { background: rgba(255,77,77,0.15); border-color: var(--red); animation: pulse-r 1.2s infinite; }
+@keyframes pulse-r { 0%,100%{box-shadow:0 0 0 0 rgba(255,77,77,0.4)} 50%{box-shadow:0 0 0 12px rgba(255,77,77,0)} }
+.mic-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.mic-status { font-size: 12px; font-family: 'Syne Mono', monospace; color: var(--red); min-height: 18px; }
+
+/* Transmisión en vivo */
+.live-text {
+  background: var(--surface2); border-radius: 8px; padding: 14px;
+  font-size: 14px; line-height: 1.7; color: var(--text);
+  min-height: 80px; max-height: 160px; overflow-y: auto;
+  border: 1px solid var(--border);
+}
+
+/* Receptores conectados */
+.receptores-count {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--muted);
+}
+.count-badge {
+  background: rgba(108,99,255,0.2); color: var(--accent);
+  font-family: 'Syne Mono', monospace; font-size: 12px;
+  padding: 2px 8px; border-radius: 12px;
+}
+
+/* ── MODO RECEPTOR ── */
+#receptor-view { flex: 1; padding: 20px; display: none; flex-direction: column; gap: 16px; }
+#receptor-view.active { display: flex; }
+
+/* Ruta */
+.ruta-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; }
+.ruta-steps { display: flex; flex-direction: column; gap: 0; }
+.ruta-step {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 10px 0;
+  position: relative;
+}
+.ruta-step:not(:last-child)::after {
+  content: ''; position: absolute; left: 11px; top: 32px;
+  width: 2px; height: calc(100% - 14px);
+  background: var(--border);
+}
+.step-dot {
+  width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+  background: var(--surface3); border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-family: 'Syne Mono', monospace; color: var(--muted);
+  z-index: 1;
+}
+.step-dot.activo { background: var(--accent); border-color: var(--accent); color: #fff; }
+.step-dot.visitado { background: var(--surface3); border-color: var(--green); color: var(--green); }
+.step-info { flex: 1; }
+.step-name { font-size: 14px; font-weight: 500; }
+.step-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* Audio del guía */
+.audio-stream-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; }
+.wave-container { display: flex; align-items: center; justify-content: center; gap: 4px; height: 48px; margin: 12px 0; }
+.wave-bar { width: 4px; border-radius: 4px; background: var(--accent); opacity: 0.3; height: 8px; transition: height 0.1s, opacity 0.1s; }
+.wave-bar.active { opacity: 1; animation: wave-anim 0.8s ease-in-out infinite; }
+.wave-bar:nth-child(2) { animation-delay: 0.1s; }
+.wave-bar:nth-child(3) { animation-delay: 0.2s; }
+.wave-bar:nth-child(4) { animation-delay: 0.3s; }
+.wave-bar:nth-child(5) { animation-delay: 0.15s; }
+@keyframes wave-anim { 0%,100%{height:8px} 50%{height:36px} }
+
+.transcript-box {
+  background: var(--surface2); border-radius: 8px; padding: 14px;
+  font-size: 14px; line-height: 1.75; color: var(--text);
+  min-height: 100px; max-height: 200px; overflow-y: auto;
+  border: 1px solid var(--border); font-style: italic;
+}
+.transcript-box.empty { color: var(--muted); font-style: italic; }
+
+/* Modo explorador */
+.explorador-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 20px; }
+.photo-area {
+  border: 2px dashed var(--border); border-radius: 10px;
+  padding: 24px; text-align: center; cursor: pointer;
+  transition: border-color 0.2s; margin-bottom: 14px;
+}
+.photo-area:hover { border-color: var(--gold); }
+.photo-area.has-photo { border-style: solid; border-color: var(--gold); padding: 8px; }
+.photo-area img { max-width: 100%; max-height: 220px; border-radius: 6px; display: block; margin: 0 auto; }
+.photo-placeholder { color: var(--muted); font-size: 13px; }
+.photo-placeholder .icon { font-size: 32px; margin-bottom: 8px; }
+#file-input { display: none; }
+
+.ai-response {
+  background: var(--surface2); border-radius: 8px; padding: 16px;
+  font-size: 14px; line-height: 1.8; color: var(--text);
+  border-left: 3px solid var(--gold); min-height: 80px;
+  display: none;
+}
+.ai-response.visible { display: block; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+
+.cursor-blink { display: inline-block; width: 2px; height: 1em; background: var(--gold); vertical-align: text-bottom; animation: blink 0.7s infinite; margin-left: 2px; }
+@keyframes blink { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+
+.btn-analizar { width: 100%; padding: 12px; font-size: 14px; background: linear-gradient(135deg, rgba(245,197,24,0.2), rgba(245,197,24,0.08)); border: 1px solid rgba(245,197,24,0.35); color: var(--gold); border-radius: 8px; cursor: pointer; font-family: 'Syne', sans-serif; font-weight: 600; letter-spacing: 0.03em; transition: all 0.2s; }
+.btn-analizar:hover { background: rgba(245,197,24,0.2); }
+.btn-analizar:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Botón audio respuesta */
+.btn-audio-resp { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; background: rgba(108,99,255,0.15); border: 1px solid rgba(108,99,255,0.3); color: var(--accent); border-radius: 8px; padding: 6px 14px; font-size: 12px; font-family: 'Syne', monospace; cursor: pointer; transition: all 0.2s; }
+.btn-audio-resp:hover { background: rgba(108,99,255,0.25); }
+
+/* Parada actual destacada en receptor */
+.parada-actual-card {
+  background: rgba(108,99,255,0.1); border: 1px solid rgba(108,99,255,0.3);
+  border-radius: var(--r); padding: 16px;
+  display: none;
+}
+.parada-actual-card.visible { display: block; animation: fadeIn 0.4s ease; }
+.parada-actual-titulo { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+.parada-actual-sub { font-size: 13px; color: var(--muted); }
+
+/* ── MAPA ── */
+.mapa-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
+.mapa-header { padding: 14px 16px 10px; display: flex; align-items: center; justify-content: space-between; }
+#mapa-guia, #mapa-receptor { height: 280px; width: 100%; }
+.leaflet-container { background: #1a1a22 !important; }
+.leaflet-tile { filter: brightness(0.75) saturate(0.6) hue-rotate(200deg); }
+.leaflet-popup-content-wrapper { background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 10px; box-shadow: none; font-family: 'Syne', sans-serif; font-size: 13px; }
+.leaflet-popup-tip { background: var(--surface2); }
+.leaflet-popup-close-button { color: var(--muted) !important; }
+.marker-pin { width: 28px; height: 28px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid; display: flex; align-items: center; justify-content: center; }
+.marker-pin span { transform: rotate(45deg); font-size: 11px; font-family: 'Syne Mono', monospace; font-weight: 700; }
+.marker-activo .marker-pin { background: rgba(108,99,255,0.9); border-color: #9b94ff; }
+.marker-normal .marker-pin { background: rgba(40,40,55,0.92); border-color: #444460; }
+.marker-visitado .marker-pin { border-color: var(--green); background: rgba(61,220,132,0.18); }
+.coord-inputs { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 0 16px 14px; }
+.coord-inputs input { width: 130px; }
+.coord-inputs label { font-size: 11px; color: var(--muted); font-family: 'Syne Mono', monospace; }
+.btn-loc { display: flex; align-items: center; gap: 5px; background: rgba(61,220,132,0.12); border: 1px solid rgba(61,220,132,0.3); color: var(--green); border-radius: 8px; padding: 7px 12px; font-size: 12px; font-family: 'Syne', sans-serif; font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
+.btn-loc:hover { background: rgba(61,220,132,0.22); }
+.yo-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--green); border: 2px solid #0c0c0f; box-shadow: 0 0 0 4px rgba(61,220,132,0.3); animation: pulse-g 2s infinite; }
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 4px; }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(80px);
+  background: var(--surface3); border: 1px solid var(--border);
+  border-radius: 20px; padding: 10px 20px; font-size: 13px;
+  transition: transform 0.3s; z-index: 999;
+}
+.toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<!-- ── SELECTOR DE ROL ── -->
+<div id="role-screen">
+  <h1>Audio<span>Guía</span> Pro</h1>
+  <p>Sistema profesional guía-receptor con IA. Elige tu rol para comenzar.</p>
+  <div class="role-cards">
+    <div class="role-card" onclick="iniciarComo('guia')">
+      <div class="role-icon">🎙️</div>
+      <div class="badge badge-guia">GUÍA</div>
+      <h3>Soy el guía</h3>
+      <p>Hablo al grupo, controlo la ruta y transmito mi voz en tiempo real</p>
+    </div>
+    <div class="role-card" onclick="iniciarComo('receptor')">
+      <div class="role-icon">🎧</div>
+      <div class="badge badge-rec">RECEPTOR</div>
+      <h3>Soy visitante</h3>
+      <p>Escucho al guía, sigo la ruta y puedo explorar obras con la cámara</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── APP PRINCIPAL ── -->
+<div id="app">
+  <div class="app-header">
+    <div class="logo">Audio<span>Guía</span> Pro</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="mode-badge" id="mode-badge"></div>
+      <div class="connection-dot" id="conn-dot" title="Estado de conexión"></div>
+    </div>
+  </div>
+
+  <!-- ══ VISTA GUÍA ══ -->
+  <div id="guia-view">
+
+    <!-- Mapa guía -->
+    <div class="mapa-panel">
+      <div class="mapa-header">
+        <div class="section-title" style="margin:0">Mapa de la ruta</div>
+        <button class="btn-loc" onclick="usarMiUbicacion()">📍 Usar mi ubicación</button>
+      </div>
+      <div id="mapa-guia"></div>
+      <div class="coord-inputs">
+        <div>
+          <label>LAT parada seleccionada</label>
+          <input class="input-text" id="input-lat" placeholder="19.4326" style="width:130px"/>
+        </div>
+        <div>
+          <label>LNG parada seleccionada</label>
+          <input class="input-text" id="input-lng" placeholder="-99.1332" style="width:130px"/>
+        </div>
+        <button class="btn btn-accent" onclick="guardarCoordParada()" style="margin-top:14px">Guardar coords</button>
+      </div>
+    </div>
+
+    <div class="receptores-count">
+      <span>Receptores escuchando:</span>
+      <span class="count-badge" id="rec-count">0</span>
+      <span style="color:var(--muted);font-size:12px">· Comparte esta URL para que se unan</span>
+    </div>
+
+    <!-- Paradas de la ruta -->
+    <div class="paradas-wrap">
+      <div class="section-title">Ruta del recorrido</div>
+      <div class="parada-list" id="parada-list"></div>
+      <div class="add-parada">
+        <input class="input-text" id="nueva-parada" placeholder="Nombre de la siguiente parada…" />
+        <button class="btn btn-accent" onclick="agregarParada()">+ Agregar</button>
+      </div>
+    </div>
+
+    <!-- Micrófono -->
+    <div class="mic-panel">
+      <div class="section-title">Tu micrófono</div>
+      <div class="mic-ring" id="mic-ring" onclick="toggleGrabacion()">🎙️</div>
+      <div class="mic-label" id="mic-label">Presiona para hablar al grupo</div>
+      <div class="mic-status" id="mic-status"></div>
+    </div>
+
+    <!-- Texto que escuchan -->
+    <div>
+      <div class="section-title">Lo que están escuchando tus visitantes</div>
+      <div class="live-text" id="live-text">Aquí aparecerá tu voz transcrita en tiempo real…</div>
+    </div>
+
+  </div>
+
+  <!-- ══ VISTA RECEPTOR ══ -->
+  <div id="receptor-view">
+
+    <!-- Mapa receptor -->
+    <div class="mapa-panel">
+      <div class="mapa-header">
+        <div class="section-title" style="margin:0">Mapa de la ruta</div>
+        <button class="btn-loc" onclick="centrarEnMi()">📍 Mi ubicación</button>
+      </div>
+      <div id="mapa-receptor"></div>
+    </div>
+
+    <!-- Parada actual -->
+
+    <div class="parada-actual-card" id="parada-actual-card">
+      <div style="font-size:11px;font-family:'Syne Mono',monospace;color:var(--accent);margin-bottom:6px">PARADA ACTUAL</div>
+      <div class="parada-actual-titulo" id="parada-actual-titulo">—</div>
+      <div class="parada-actual-sub" id="parada-actual-sub"></div>
+    </div>
+
+    <!-- Audio del guía -->
+    <div class="audio-stream-panel">
+      <div class="section-title">Escuchando al guía</div>
+      <div class="wave-container" id="wave-container">
+        <div class="wave-bar" id="wb1"></div>
+        <div class="wave-bar" id="wb2"></div>
+        <div class="wave-bar" id="wb3"></div>
+        <div class="wave-bar" id="wb4"></div>
+        <div class="wave-bar" id="wb5"></div>
+      </div>
+      <div class="transcript-box empty" id="transcript-box">Esperando al guía…</div>
+    </div>
+
+    <!-- Ruta -->
+    <div class="ruta-panel">
+      <div class="section-title">Ruta del recorrido</div>
+      <div class="ruta-steps" id="ruta-steps">
+        <div style="color:var(--muted);font-size:13px">El guía aún no ha compartido la ruta.</div>
+      </div>
+    </div>
+
+    <!-- Modo explorador -->
+    <div class="explorador-panel">
+      <div class="section-title">Modo explorador · Analiza una obra</div>
+      <div class="photo-area" id="photo-area" onclick="document.getElementById('file-input').click()">
+        <div class="photo-placeholder">
+          <div class="icon">📷</div>
+          <div>Toca para tomar una foto o elegir de tu galería</div>
+          <div style="font-size:11px;margin-top:4px;color:var(--muted)">La IA analizará la obra al instante</div>
+        </div>
+      </div>
+      <input type="file" id="file-input" accept="image/*" capture="environment" onchange="onFotoSeleccionada(event)">
+      <button class="btn-analizar" id="btn-analizar" onclick="analizarFoto()" disabled>
+        ✦ Analizar con IA
+      </button>
+      <div class="ai-response" id="ai-response"></div>
+    </div>
+
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── ESTADO GLOBAL ──
+let rol = null;
+let canal = null;
+let paradas = [];
+let paradaActiva = -1;
+let grabando = false;
+let recognition = null;
+let imagenBase64 = null;
+let imagenMime = null;
+let utterance = null;
+
+// Mapas
+let mapaGuia = null;
+let mapaReceptor = null;
+let markersGuia = [];
+let markersReceptor = [];
+let lineaRutaGuia = null;
+let lineaRutaReceptor = null;
+let markerYoReceptor = null;
+let markerYoGuia = null;
+let miLat = null, miLng = null;
+
+
+// ── INICIAR ──
+function iniciarComo(r) {
+  rol = r;
+  document.getElementById('role-screen').style.display = 'none';
+  const app = document.getElementById('app');
+  app.classList.add('visible');
+
+  const badge = document.getElementById('mode-badge');
+  badge.textContent = r === 'guia' ? '🎙 Guía' : '🎧 Receptor';
+  badge.className = 'mode-badge ' + r;
+
+  canal = new BroadcastChannel('audioguia_pro_canal');
+  canal.onmessage = recibirMensaje;
+
+  if (r === 'guia') {
+    document.getElementById('guia-view').classList.add('active');
+    // Paradas por defecto (CDMX: Museo Nacional de Antropología y alrededores)
+    paradas = [
+      { nombre: 'Entrada principal', visitada: false, lat: 19.4260, lng: -99.1862 },
+      { nombre: 'Sala prehispánica', visitada: false, lat: 19.4265, lng: -99.1858 },
+      { nombre: 'Galería colonial',  visitada: false, lat: 19.4269, lng: -99.1851 },
+      { nombre: 'Arte moderno',      visitada: false, lat: 19.4272, lng: -99.1844 },
+    ];
+    renderParadas();
+    document.getElementById('conn-dot').classList.add('on');
+    setTimeout(() => iniciarMapaGuia(), 100);
+    broadcastEstado();
+    setInterval(() => canal.postMessage({ tipo: 'ping', ts: Date.now() }), 3000);
+  } else {
+    document.getElementById('receptor-view').classList.add('active');
+    canal.postMessage({ tipo: 'receptor_unido' });
+    document.getElementById('conn-dot').classList.add('on');
+    setTimeout(() => iniciarMapaReceptor(), 100);
+  }
+}
+
+// ── BROADCAST ──
+function broadcastEstado() {
+  canal.postMessage({
+    tipo: 'estado',
+    paradas: paradas,
+    paradaActiva: paradaActiva
+  });
+}
+
+function recibirMensaje(e) {
+  const msg = e.data;
+  if (!msg) return;
+
+  if (rol === 'guia') {
+    if (msg.tipo === 'receptor_unido') {
+      const n = parseInt(document.getElementById('rec-count').textContent || '0') + 1;
+      document.getElementById('rec-count').textContent = n;
+      broadcastEstado();
+      mostrarToast('Un visitante se unió al recorrido');
+    }
+  }
+
+  if (rol === 'receptor') {
+    if (msg.tipo === 'estado' || msg.tipo === 'ruta_update') {
+      paradas = msg.paradas || [];
+      paradaActiva = msg.paradaActiva ?? -1;
+      renderRutaReceptor();
+      actualizarParadaActual();
+      if (mapaReceptor) actualizarMapaReceptor();
+    }
+    if (msg.tipo === 'ubicacion_guia') {
+      mostrarUbicacionGuiaEnReceptor(msg.lat, msg.lng);
+    }
+    if (msg.tipo === 'transcripcion') {
+      const box = document.getElementById('transcript-box');
+      box.classList.remove('empty');
+      box.textContent = msg.texto;
+      activarOndas(true);
+      leerEnVoz(msg.texto);
+    }
+    if (msg.tipo === 'transcripcion_fin') {
+      activarOndas(false);
+    }
+    if (msg.tipo === 'ping') {
+      document.getElementById('conn-dot').classList.add('on');
+    }
+  }
+}
+
+// ── GUÍA: PARADAS ──
+function renderParadas() {
+  const list = document.getElementById('parada-list');
+  list.innerHTML = '';
+  paradas.forEach((p, i) => {
+    const div = document.createElement('div');
+    div.className = 'parada-item' + (i === paradaActiva ? ' activa' : '');
+    const tieneCoord = p.lat && p.lng;
+    div.innerHTML = `
+      <span class="parada-num">${String(i+1).padStart(2,'0')}</span>
+      <span class="parada-name">${p.nombre}${tieneCoord ? ' <span style="color:var(--green);font-size:10px">📍</span>' : ''}</span>
+      <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="seleccionarParadaGuia(${i})">Editar</button>
+      <button class="btn btn-accent" style="padding:4px 10px;font-size:11px" onclick="irAParada(${i})">▶ Ir</button>
+    `;
+    list.appendChild(div);
+  });
+  if (mapaGuia) actualizarMapaGuia();
+}
+
+function seleccionarParadaGuia(i) {
+  paradaActiva = i;
+  renderParadas();
+  if (paradas[i].lat) {
+    document.getElementById('input-lat').value = paradas[i].lat;
+    document.getElementById('input-lng').value = paradas[i].lng;
+    mapaGuia.setView([paradas[i].lat, paradas[i].lng], 17);
+  }
+}
+
+function guardarCoordParada() {
+  if (paradaActiva < 0) { mostrarToast('Selecciona primero una parada'); return; }
+  const lat = parseFloat(document.getElementById('input-lat').value);
+  const lng = parseFloat(document.getElementById('input-lng').value);
+  if (isNaN(lat) || isNaN(lng)) { mostrarToast('Coordenadas inválidas'); return; }
+  paradas[paradaActiva].lat = lat;
+  paradas[paradaActiva].lng = lng;
+  renderParadas();
+  broadcastEstado();
+  mapaGuia.setView([lat, lng], 17);
+  mostrarToast(`Coordenadas guardadas para "${paradas[paradaActiva].nombre}"`);
+}
+
+function usarMiUbicacion() {
+  if (!navigator.geolocation) { mostrarToast('Geolocalización no disponible'); return; }
+  navigator.geolocation.getCurrentPosition(pos => {
+    miLat = pos.coords.latitude;
+    miLng = pos.coords.longitude;
+    document.getElementById('input-lat').value = miLat.toFixed(6);
+    document.getElementById('input-lng').value = miLng.toFixed(6);
+    mapaGuia.setView([miLat, miLng], 17);
+    if (markerYoGuia) markerYoGuia.remove();
+    markerYoGuia = L.marker([miLat, miLng], { icon: yoIcon() }).addTo(mapaGuia).bindPopup('Tú (guía)');
+    canal.postMessage({ tipo: 'ubicacion_guia', lat: miLat, lng: miLng });
+    mostrarToast('Ubicación obtenida');
+  }, () => mostrarToast('No se pudo obtener la ubicación'));
+}
+
+
+function agregarParada() {
+  const input = document.getElementById('nueva-parada');
+  const nombre = input.value.trim();
+  if (!nombre) return;
+  paradas.push({ nombre, visitada: false });
+  input.value = '';
+  renderParadas();
+  broadcastEstado();
+}
+
+function irAParada(i) {
+  paradaActiva = i;
+  paradas[i].visitada = true;
+  renderParadas();
+  canal.postMessage({ tipo: 'ruta_update', paradas, paradaActiva });
+  mostrarToast(`Moviéndose a: ${paradas[i].nombre}`);
+  if (mapaGuia && paradas[i].lat) mapaGuia.setView([paradas[i].lat, paradas[i].lng], 17);
+}
+
+// ── GUÍA: MICRÓFONO ──
+function toggleGrabacion() {
+  if (grabando) detenerGrabacion();
+  else iniciarGrabacion();
+}
+
+function iniciarGrabacion() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    mostrarToast('Tu navegador no soporta reconocimiento de voz');
+    return;
+  }
+  recognition = new SR();
+  recognition.lang = 'es-MX';
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  recognition.onresult = (e) => {
+    let texto = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      texto += e.results[i][0].transcript;
+    }
+    document.getElementById('live-text').textContent = texto;
+    canal.postMessage({ tipo: 'transcripcion', texto });
+  };
+
+  recognition.onend = () => {
+    if (grabando) recognition.start();
+  };
+
+  recognition.start();
+  grabando = true;
+  document.getElementById('mic-ring').classList.add('grabando');
+  document.getElementById('mic-ring').textContent = '⏹';
+  document.getElementById('mic-label').textContent = 'Grabando… tus visitantes te escuchan';
+  document.getElementById('mic-status').textContent = '● EN VIVO';
+}
+
+function detenerGrabacion() {
+  if (recognition) { recognition.stop(); recognition = null; }
+  grabando = false;
+  document.getElementById('mic-ring').classList.remove('grabando');
+  document.getElementById('mic-ring').textContent = '🎙️';
+  document.getElementById('mic-label').textContent = 'Presiona para hablar al grupo';
+  document.getElementById('mic-status').textContent = '';
+  canal.postMessage({ tipo: 'transcripcion_fin' });
+}
+
+// ── RECEPTOR: RUTA ──
+function renderRutaReceptor() {
+  const cont = document.getElementById('ruta-steps');
+  if (!paradas.length) {
+    cont.innerHTML = '<div style="color:var(--muted);font-size:13px">El guía aún no ha compartido la ruta.</div>';
+    return;
+  }
+  cont.innerHTML = '';
+  paradas.forEach((p, i) => {
+    const div = document.createElement('div');
+    div.className = 'ruta-step';
+    const dotClass = i === paradaActiva ? 'activo' : (p.visitada ? 'visitado' : '');
+    const dotText = p.visitada && i !== paradaActiva ? '✓' : (i + 1);
+    div.innerHTML = `
+      <div class="step-dot ${dotClass}">${dotText}</div>
+      <div class="step-info">
+        <div class="step-name">${p.nombre}</div>
+        ${i === paradaActiva ? '<div class="step-sub" style="color:var(--accent)">← Estamos aquí</div>' : ''}
+      </div>
+    `;
+    cont.appendChild(div);
+  });
+}
+
+function actualizarParadaActual() {
+  const card = document.getElementById('parada-actual-card');
+  if (paradaActiva >= 0 && paradas[paradaActiva]) {
+    document.getElementById('parada-actual-titulo').textContent = paradas[paradaActiva].nombre;
+    document.getElementById('parada-actual-sub').textContent = `Parada ${paradaActiva + 1} de ${paradas.length}`;
+    card.classList.add('visible');
+  } else {
+    card.classList.remove('visible');
+  }
+}
+
+// ── RECEPTOR: ONDAS ──
+function activarOndas(on) {
+  [1,2,3,4,5].forEach(n => {
+    const b = document.getElementById('wb'+n);
+    if (b) b.classList.toggle('active', on);
+  });
+}
+
+// ── RECEPTOR: TTS ──
+function leerEnVoz(texto) {
+  if (!window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  utterance = new SpeechSynthesisUtterance(texto);
+  utterance.lang = 'es-MX';
+  utterance.rate = 0.92;
+  speechSynthesis.speak(utterance);
+}
+
+// ── RECEPTOR: FOTO + IA ──
+function onFotoSeleccionada(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  imagenMime = file.type;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    imagenBase64 = ev.target.result.split(',')[1];
+    const area = document.getElementById('photo-area');
+    area.classList.add('has-photo');
+    area.innerHTML = `<img src="${ev.target.result}" alt="Foto seleccionada">`;
+    document.getElementById('btn-analizar').disabled = false;
+    document.getElementById('ai-response').classList.remove('visible');
+  };
+  reader.readAsDataURL(file);
+}
+
+async function analizarFoto() {
+  if (!imagenBase64) return;
+  const btn = document.getElementById('btn-analizar');
+  const resp = document.getElementById('ai-response');
+  btn.disabled = true;
+  resp.innerHTML = '<span class="cursor-blink"></span>';
+  resp.classList.add('visible');
+
+  const contexto = paradaActiva >= 0 && paradas[paradaActiva]
+    ? `Estamos en la parada: "${paradas[paradaActiva].nombre}".`
+    : '';
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        stream: true,
+        system: `Eres un experto en arte e historia, con el talento de un gran narrador.
+Cuando un visitante te muestra una foto de una obra, lugar o objeto, debes dar una explicación fascinante de 150-200 palabras.
+Habla en español, de forma apasionada y accesible. Incluye: qué es lo que ves, su contexto histórico/artístico, detalles técnicos notables, y una reflexión final que enriquezca la experiencia del visitante.
+${contexto}
+No uses markdown, solo prosa fluida.`,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: imagenMime, data: imagenBase64 } },
+            { type: 'text', text: 'Analiza detalladamente lo que ves en esta imagen y dame una explicación enriquecedora.' }
+          ]
+        }]
+      })
+    });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    resp.innerHTML = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value);
+      for (const line of chunk.split('\n')) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') continue;
+          try {
+            const json = JSON.parse(data);
+            if (json.type === 'content_block_delta' && json.delta?.text) {
+              fullText += json.delta.text;
+              resp.textContent = fullText;
+            }
+          } catch {}
+        }
+      }
+    }
+
+    // Botón para escuchar
+    const speakBtn = document.createElement('button');
+    speakBtn.className = 'btn-audio-resp';
+    speakBtn.innerHTML = '▶ Escuchar explicación';
+    speakBtn.onclick = () => {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(fullText);
+      u.lang = 'es-MX'; u.rate = 0.9;
+      speechSynthesis.speak(u);
+      speakBtn.innerHTML = '⏸ Reproduciendo…';
+      u.onend = () => { speakBtn.innerHTML = '▶ Escuchar de nuevo'; };
+    };
+    resp.appendChild(document.createElement('br'));
+    resp.appendChild(speakBtn);
+
+  } catch (err) {
+    resp.textContent = 'Error al conectar con la IA. Verifica tu conexión.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── MAPAS ──
+const TILE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const TILE_ATTR = '&copy; <a href="https://carto.com/">CARTO</a>';
+
+function crearMapa(id, lat, lng, zoom) {
+  const m = L.map(id, { zoomControl: true, attributionControl: false }).setView([lat, lng], zoom);
+  L.tileLayer(TILE, { attribution: TILE_ATTR, maxZoom: 19 }).addTo(m);
+  L.control.attribution({ position: 'bottomright', prefix: '' }).addTo(m).setPrefix(TILE_ATTR);
+  return m;
+}
+
+function iconParada(i, esActivo, esVisitado) {
+  const cls = esActivo ? 'marker-activo' : (esVisitado ? 'marker-visitado' : 'marker-normal');
+  return L.divIcon({
+    className: cls,
+    html: `<div class="marker-pin"><span>${i+1}</span></div>`,
+    iconSize: [28, 34], iconAnchor: [14, 34], popupAnchor: [0, -34]
+  });
+}
+
+function yoIcon() {
+  return L.divIcon({ className: '', html: '<div class="yo-dot"></div>', iconSize: [14,14], iconAnchor: [7,7] });
+}
+
+function iniciarMapaGuia() {
+  const centro = paradas.find(p => p.lat) || { lat: 19.4260, lng: -99.1862 };
+  mapaGuia = crearMapa('mapa-guia', centro.lat, centro.lng, 16);
+  mapaGuia.on('click', e => {
+    document.getElementById('input-lat').value = e.latlng.lat.toFixed(6);
+    document.getElementById('input-lng').value = e.latlng.lng.toFixed(6);
+    mostrarToast('Coordenadas copiadas — presiona "Guardar coords"');
+  });
+  actualizarMapaGuia();
+}
+
+function actualizarMapaGuia() {
+  markersGuia.forEach(m => m.remove());
+  markersGuia = [];
+  if (lineaRutaGuia) { lineaRutaGuia.remove(); lineaRutaGuia = null; }
+
+  const conCoord = paradas.filter(p => p.lat && p.lng);
+  if (!conCoord.length) return;
+
+  const latlngs = [];
+  paradas.forEach((p, i) => {
+    if (!p.lat || !p.lng) return;
+    latlngs.push([p.lat, p.lng]);
+    const m = L.marker([p.lat, p.lng], { icon: iconParada(i, i === paradaActiva, p.visitada) })
+      .addTo(mapaGuia)
+      .bindPopup(`<b>${p.nombre}</b><br><small>${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</small>`);
+    markersGuia.push(m);
+  });
+
+  if (latlngs.length > 1) {
+    lineaRutaGuia = L.polyline(latlngs, { color: '#6c63ff', weight: 3, opacity: 0.7, dashArray: '6 8' }).addTo(mapaGuia);
+  }
+  if (latlngs.length) mapaGuia.fitBounds(L.latLngBounds(latlngs).pad(0.25));
+}
+
+function iniciarMapaReceptor() {
+  mapaReceptor = crearMapa('mapa-receptor', 19.4260, -99.1862, 15);
+  actualizarMapaReceptor();
+}
+
+function actualizarMapaReceptor() {
+  markersReceptor.forEach(m => m.remove());
+  markersReceptor = [];
+  if (lineaRutaReceptor) { lineaRutaReceptor.remove(); lineaRutaReceptor = null; }
+
+  const latlngs = [];
+  paradas.forEach((p, i) => {
+    if (!p.lat || !p.lng) return;
+    latlngs.push([p.lat, p.lng]);
+    const m = L.marker([p.lat, p.lng], { icon: iconParada(i, i === paradaActiva, p.visitada) })
+      .addTo(mapaReceptor)
+      .bindPopup(`<b>${p.nombre}</b>${i === paradaActiva ? '<br><span style="color:#6c63ff">← Estamos aquí</span>' : ''}`);
+    if (i === paradaActiva) m.openPopup();
+    markersReceptor.push(m);
+  });
+
+  if (latlngs.length > 1) {
+    lineaRutaReceptor = L.polyline(latlngs, { color: '#6c63ff', weight: 3, opacity: 0.65, dashArray: '6 8' }).addTo(mapaReceptor);
+  }
+  if (paradaActiva >= 0 && paradas[paradaActiva]?.lat) {
+    mapaReceptor.setView([paradas[paradaActiva].lat, paradas[paradaActiva].lng], 17);
+  } else if (latlngs.length) {
+    mapaReceptor.fitBounds(L.latLngBounds(latlngs).pad(0.25));
+  }
+}
+
+let markerGuiaEnReceptor = null;
+function mostrarUbicacionGuiaEnReceptor(lat, lng) {
+  if (!mapaReceptor) return;
+  if (markerGuiaEnReceptor) markerGuiaEnReceptor.remove();
+  markerGuiaEnReceptor = L.marker([lat, lng], {
+    icon: L.divIcon({ className: '', html: '<div style="width:18px;height:18px;border-radius:50%;background:#ff6584;border:2px solid #fff;box-shadow:0 0 8px #ff6584"></div>', iconSize:[18,18], iconAnchor:[9,9] })
+  }).addTo(mapaReceptor).bindPopup('Guía');
+}
+
+function centrarEnMi() {
+  if (!navigator.geolocation || !mapaReceptor) return;
+  navigator.geolocation.getCurrentPosition(pos => {
+    const lat = pos.coords.latitude, lng = pos.coords.longitude;
+    mapaReceptor.setView([lat, lng], 17);
+    if (markerYoReceptor) markerYoReceptor.remove();
+    markerYoReceptor = L.marker([lat, lng], { icon: yoIcon() }).addTo(mapaReceptor).bindPopup('Tú');
+    canal.postMessage({ tipo: 'ubicacion_receptor', lat, lng });
+    mostrarToast('Mostrando tu ubicación');
+  }, () => mostrarToast('No se pudo obtener la ubicación'));
+}
+
+// ── TOAST ──
+function mostrarToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2800);
+}
+
+// Enter en parada
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('nueva-parada');
+  if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter') agregarParada(); });
+});
+
+// ── PWA: REGISTRO DEL SERVICE WORKER ──
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => console.log('AudioGuía PWA lista'))
+      .catch(err => console.warn('SW no registrado:', err));
+  });
+}
+
+</script>
+</body>
+</html>

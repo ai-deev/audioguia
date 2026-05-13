@@ -1,0 +1,26 @@
+{
+  "name": "AudioGuía Pro",
+  "short_name": "AudioGuía",
+  "description": "Sistema profesional de audioguía con IA para museos y recorridos",
+  "start_url": "./audioguia-pro.html",
+  "display": "standalone",
+  "background_color": "#0c0c0f",
+  "theme_color": "#6c63ff",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "travel"],
+  "lang": "es-MX"
+}
