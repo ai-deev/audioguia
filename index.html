@@ -431,10 +431,18 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 <div class="toast" id="toast"></div>
 
+<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+// ── CONFIGURACIÓN ABLY ──
+// 1. Ve a https://ably.com → crea cuenta gratis → copia tu API Key
+// 2. Pégala aquí (la que termina en :xxxx)
+const ABLY_KEY = 'SKwkNw.NVwYWA:6sqXgfm_iqbYtEgqKStJApvW8kSggzwM6aLaum-0pUQ';
+const CANAL_NOMBRE = 'audioguia-recorrido-1'; // Cambia el número para grupos distintos
+
 // ── ESTADO GLOBAL ──
 let rol = null;
+let ablyCliente = null;
 let canal = null;
 let paradas = [];
 let paradaActiva = -1;
@@ -455,9 +463,20 @@ let markerYoReceptor = null;
 let markerYoGuia = null;
 let miLat = null, miLng = null;
 
+// ── PUBLICAR MENSAJE ──
+function broadcast(tipo, datos) {
+  if (!canal) return;
+  canal.publish(tipo, datos);
+}
+
+
 
 // ── INICIAR ──
-function iniciarComo(r) {
+async function iniciarComo(r) {
+  if (ABLY_KEY === 'TU_API_KEY_AQUI') {
+    mostrarToast('⚠️ Agrega tu API Key de Ably en el código primero');
+    return;
+  }
   rol = r;
   document.getElementById('role-screen').style.display = 'none';
   const app = document.getElementById('app');
@@ -467,79 +486,87 @@ function iniciarComo(r) {
   badge.textContent = r === 'guia' ? '🎙 Guía' : '🎧 Receptor';
   badge.className = 'mode-badge ' + r;
 
-  canal = new BroadcastChannel('audioguia_pro_canal');
-  canal.onmessage = recibirMensaje;
+  // Conectar a Ably
+  ablyCliente = new Ably.Realtime({ key: ABLY_KEY, clientId: r + '-' + Date.now() });
+  canal = ablyCliente.channels.get(CANAL_NOMBRE);
+
+  ablyCliente.connection.on('connected', () => {
+    document.getElementById('conn-dot').classList.add('on');
+    mostrarToast('Conectado al canal en tiempo real ✓');
+  });
+  ablyCliente.connection.on('disconnected', () => {
+    document.getElementById('conn-dot').classList.remove('on');
+  });
+
+  // Escuchar todos los mensajes del canal
+  canal.subscribe(recibirMensaje);
 
   if (r === 'guia') {
     document.getElementById('guia-view').classList.add('active');
-    // Paradas por defecto (CDMX: Museo Nacional de Antropología y alrededores)
     paradas = [
-      { nombre: 'Entrada principal', visitada: false, lat: 19.4260, lng: -99.1862 },
-      { nombre: 'Sala prehispánica', visitada: false, lat: 19.4265, lng: -99.1858 },
-      { nombre: 'Galería colonial',  visitada: false, lat: 19.4269, lng: -99.1851 },
-      { nombre: 'Arte moderno',      visitada: false, lat: 19.4272, lng: -99.1844 },
+      { nombre: 'Entrada principal',    visitada: false, lat: 19.4260, lng: -99.1862 },
+      { nombre: 'Sala prehispánica',    visitada: false, lat: 19.4265, lng: -99.1858 },
+      { nombre: 'Galería colonial',     visitada: false, lat: 19.4269, lng: -99.1851 },
+      { nombre: 'Arte moderno',         visitada: false, lat: 19.4272, lng: -99.1844 },
     ];
     renderParadas();
-    document.getElementById('conn-dot').classList.add('on');
     setTimeout(() => iniciarMapaGuia(), 100);
+    // Publicar estado inicial para receptores que ya estén conectados
     broadcastEstado();
-    setInterval(() => canal.postMessage({ tipo: 'ping', ts: Date.now() }), 3000);
+    // Reavivar estado cada 5s para nuevos receptores
+    setInterval(broadcastEstado, 5000);
   } else {
     document.getElementById('receptor-view').classList.add('active');
-    canal.postMessage({ tipo: 'receptor_unido' });
-    document.getElementById('conn-dot').classList.add('on');
     setTimeout(() => iniciarMapaReceptor(), 100);
+    // Pedir al guía que reenvíe el estado
+    broadcast('receptor_unido', { ts: Date.now() });
   }
 }
 
-// ── BROADCAST ──
+// ── BROADCAST ESTADO ──
 function broadcastEstado() {
-  canal.postMessage({
-    tipo: 'estado',
-    paradas: paradas,
-    paradaActiva: paradaActiva
-  });
+  broadcast('estado', { paradas, paradaActiva });
 }
 
-function recibirMensaje(e) {
-  const msg = e.data;
-  if (!msg) return;
+// ── RECIBIR MENSAJES ABLY ──
+function recibirMensaje(msg) {
+  // Ably entrega: msg.name = tipo, msg.data = datos
+  const tipo = msg.name;
+  const data = msg.data || {};
 
   if (rol === 'guia') {
-    if (msg.tipo === 'receptor_unido') {
-      const n = parseInt(document.getElementById('rec-count').textContent || '0') + 1;
-      document.getElementById('rec-count').textContent = n;
+    if (tipo === 'receptor_unido') {
+      const el = document.getElementById('rec-count');
+      el.textContent = parseInt(el.textContent || '0') + 1;
       broadcastEstado();
-      mostrarToast('Un visitante se unió al recorrido');
+      mostrarToast('Un visitante se unió al recorrido 👋');
     }
   }
 
   if (rol === 'receptor') {
-    if (msg.tipo === 'estado' || msg.tipo === 'ruta_update') {
-      paradas = msg.paradas || [];
-      paradaActiva = msg.paradaActiva ?? -1;
+    if (tipo === 'estado' || tipo === 'ruta_update') {
+      paradas = data.paradas || [];
+      paradaActiva = data.paradaActiva ?? -1;
       renderRutaReceptor();
       actualizarParadaActual();
       if (mapaReceptor) actualizarMapaReceptor();
     }
-    if (msg.tipo === 'ubicacion_guia') {
-      mostrarUbicacionGuiaEnReceptor(msg.lat, msg.lng);
+    if (tipo === 'ubicacion_guia') {
+      mostrarUbicacionGuiaEnReceptor(data.lat, data.lng);
     }
-    if (msg.tipo === 'transcripcion') {
+    if (tipo === 'transcripcion') {
       const box = document.getElementById('transcript-box');
       box.classList.remove('empty');
-      box.textContent = msg.texto;
+      box.textContent = data.texto;
       activarOndas(true);
-      leerEnVoz(msg.texto);
+      leerEnVoz(data.texto);
     }
-    if (msg.tipo === 'transcripcion_fin') {
+    if (tipo === 'transcripcion_fin') {
       activarOndas(false);
-    }
-    if (msg.tipo === 'ping') {
-      document.getElementById('conn-dot').classList.add('on');
     }
   }
 }
+
 
 // ── GUÍA: PARADAS ──
 function renderParadas() {
@@ -593,7 +620,7 @@ function usarMiUbicacion() {
     mapaGuia.setView([miLat, miLng], 17);
     if (markerYoGuia) markerYoGuia.remove();
     markerYoGuia = L.marker([miLat, miLng], { icon: yoIcon() }).addTo(mapaGuia).bindPopup('Tú (guía)');
-    canal.postMessage({ tipo: 'ubicacion_guia', lat: miLat, lng: miLng });
+    broadcast('ubicacion_guia', { lat: miLat, lng: miLng });
     mostrarToast('Ubicación obtenida');
   }, () => mostrarToast('No se pudo obtener la ubicación'));
 }
@@ -613,7 +640,7 @@ function irAParada(i) {
   paradaActiva = i;
   paradas[i].visitada = true;
   renderParadas();
-  canal.postMessage({ tipo: 'ruta_update', paradas, paradaActiva });
+  broadcast('ruta_update', { paradas, paradaActiva });
   mostrarToast(`Moviéndose a: ${paradas[i].nombre}`);
   if (mapaGuia && paradas[i].lat) mapaGuia.setView([paradas[i].lat, paradas[i].lng], 17);
 }
@@ -641,7 +668,7 @@ function iniciarGrabacion() {
       texto += e.results[i][0].transcript;
     }
     document.getElementById('live-text').textContent = texto;
-    canal.postMessage({ tipo: 'transcripcion', texto });
+    broadcast('transcripcion', { texto });
   };
 
   recognition.onend = () => {
@@ -663,7 +690,7 @@ function detenerGrabacion() {
   document.getElementById('mic-ring').textContent = '🎙️';
   document.getElementById('mic-label').textContent = 'Presiona para hablar al grupo';
   document.getElementById('mic-status').textContent = '';
-  canal.postMessage({ tipo: 'transcripcion_fin' });
+  broadcast('transcripcion_fin', {});
 }
 
 // ── RECEPTOR: RUTA ──
@@ -954,3 +981,4 @@ if ('serviceWorker' in navigator) {
 </script>
 </body>
 </html>
+
