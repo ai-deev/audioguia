@@ -354,21 +354,9 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
     <!-- Micrófono -->
     <div class="mic-panel">
-      <div class="section-title">Tu micrófono · Whisper local</div>
-
-      <!-- Barra de carga del modelo (visible solo la primera vez) -->
-      <div id="whisper-carga" style="margin-bottom:14px;display:block">
-        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-bottom:6px">
-          <div class="connection-dot" id="whisper-dot" style="background:var(--gold);animation:none"></div>
-          <span id="whisper-status">Cargando modelo Whisper (~39 MB)…</span>
-        </div>
-        <div style="height:3px;background:var(--surface3);border-radius:2px;overflow:hidden">
-          <div id="whisper-bar" style="height:100%;background:var(--gold);border-radius:2px;width:0%;transition:width 0.3s"></div>
-        </div>
-      </div>
-
-      <div class="mic-ring" id="mic-ring" style="cursor:not-allowed;opacity:0.4">🎙️</div>
-      <div class="mic-label" id="mic-label">Cargando Whisper…</div>
+      <div class="section-title">Tu micrófono</div>
+      <div class="mic-ring" id="mic-ring" onclick="toggleGrabacion()">🎙️</div>
+      <div class="mic-label" id="mic-label">Presiona para hablar al grupo</div>
       <div class="mic-status" id="mic-status"></div>
     </div>
 
@@ -445,9 +433,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 
 <script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script type="module">
-import { pipeline } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2/dist/transformers.min.js';
-
+<script>
 // ── CONFIGURACIÓN ABLY ──
 // 1. Ve a https://ably.com → crea cuenta gratis → copia tu API Key
 // 2. Pégala aquí (la que termina en :xxxx)
@@ -461,10 +447,7 @@ let canal = null;
 let paradas = [];
 let paradaActiva = -1;
 let grabando = false;
-let mediaRecorder = null;
-let audioChunks = [];
-let transcriber = null; // Whisper
-let recognition = null; // ya no se usa, se mantiene por compatibilidad
+let recognition = null;
 let imagenBase64 = null;
 let imagenMime = null;
 let utterance = null;
@@ -528,7 +511,6 @@ async function iniciarComo(r) {
     ];
     renderParadas();
     setTimeout(() => iniciarMapaGuia(), 100);
-    setTimeout(() => cargarWhisper(), 400);
     // Publicar estado inicial para receptores que ya estén conectados
     broadcastEstado();
     // Reavivar estado cada 5s para nuevos receptores
@@ -663,135 +645,53 @@ function irAParada(i) {
   if (mapaGuia && paradas[i].lat) mapaGuia.setView([paradas[i].lat, paradas[i].lng], 17);
 }
 
-// ── WHISPER: CARGA DEL MODELO ──
-async function cargarWhisper() {
-  const statusEl = document.getElementById('whisper-status');
-  const barEl    = document.getElementById('whisper-bar');
-  const dotEl    = document.getElementById('whisper-dot');
-  const micRing  = document.getElementById('mic-ring');
-  const micLabel = document.getElementById('mic-label');
-
-  try {
-    transcriber = await pipeline(
-      'automatic-speech-recognition',
-      'Xenova/whisper-tiny',
-      {
-        progress_callback: (p) => {
-          if (p.status === 'downloading' && p.total) {
-            const pct = Math.round((p.loaded / p.total) * 100);
-            barEl.style.width = pct + '%';
-            statusEl.textContent = `Descargando Whisper… ${pct}%`;
-          }
-          if (p.status === 'loading') {
-            statusEl.textContent = 'Cargando modelo en memoria…';
-          }
-        }
-      }
-    );
-
-    // Modelo listo
-    document.getElementById('whisper-carga').style.display = 'none';
-    dotEl.style.background = 'var(--green)';
-    micRing.style.cursor = 'pointer';
-    micRing.style.opacity = '1';
-    micRing.onclick = toggleGrabacion;
-    micLabel.textContent = 'Mantén presionado para hablar';
-    document.getElementById('mic-status').innerHTML =
-      '<span style="color:var(--green);font-size:11px">● Whisper listo · 100% privado</span>';
-
-    // Eventos táctiles y de ratón para grabar mientras se mantiene presionado
-    micRing.addEventListener('mousedown',  iniciarGrabacion);
-    micRing.addEventListener('touchstart', e => { e.preventDefault(); iniciarGrabacion(); }, { passive: false });
-    micRing.addEventListener('mouseup',    detenerYTranscribir);
-    micRing.addEventListener('mouseleave', detenerYTranscribir);
-    micRing.addEventListener('touchend',   detenerYTranscribir);
-    micRing.onclick = null; // quitar el onclick simple, usamos los eventos arriba
-
-    mostrarToast('Whisper listo · tu voz no sale del dispositivo 🔒');
-
-  } catch (err) {
-    statusEl.textContent = 'Error al cargar Whisper: ' + err.message;
-    console.error(err);
-  }
+// ── GUÍA: MICRÓFONO ──
+function toggleGrabacion() {
+  if (grabando) detenerGrabacion();
+  else iniciarGrabacion();
 }
 
-// ── WHISPER: GRABACIÓN ──
-function toggleGrabacion() { /* manejado por mousedown/touchstart */ }
-
-async function iniciarGrabacion() {
-  if (grabando || !transcriber) return;
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    audioChunks = [];
-    mediaRecorder = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4' });
-    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
-    mediaRecorder.start();
-    grabando = true;
-
-    const micRing = document.getElementById('mic-ring');
-    micRing.classList.add('grabando');
-    micRing.textContent = '⏹';
-    document.getElementById('mic-label').textContent = 'Suelta para enviar…';
-    document.getElementById('mic-status').textContent = '● GRABANDO';
-  } catch (err) {
-    mostrarToast('Permiso de micrófono denegado');
+function iniciarGrabacion() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    mostrarToast('Tu navegador no soporta reconocimiento de voz');
+    return;
   }
-}
+  recognition = new SR();
+  recognition.lang = 'es-MX';
+  recognition.continuous = true;
+  recognition.interimResults = true;
 
-async function detenerYTranscribir() {
-  if (!grabando || !mediaRecorder) return;
-  grabando = false;
-
-  const micRing = document.getElementById('mic-ring');
-  micRing.classList.remove('grabando');
-  micRing.textContent = '🎙️';
-  micRing.style.opacity = '0.5';
-  document.getElementById('mic-label').textContent = 'Transcribiendo…';
-  document.getElementById('mic-status').innerHTML =
-    '<span style="color:var(--accent);font-size:11px">● Whisper procesando…</span>';
-
-  mediaRecorder.stop();
-  mediaRecorder.stream.getTracks().forEach(t => t.stop());
-  await new Promise(r => mediaRecorder.onstop = r);
-
-  try {
-    const mimeType = audioChunks[0]?.type || 'audio/webm';
-    const blob = new Blob(audioChunks, { type: mimeType });
-    const arrayBuffer = await blob.arrayBuffer();
-    const audioCtx = new AudioContext({ sampleRate: 16000 });
-    const decoded = await audioCtx.decodeAudioData(arrayBuffer);
-    const float32 = decoded.getChannelData(0);
-
-    const resultado = await transcriber(float32, {
-      language: 'spanish',
-      task: 'transcribe',
-      chunk_length_s: 30,
-    });
-
-    const texto = resultado.text?.trim();
-    if (texto) {
-      document.getElementById('live-text').textContent = texto;
-      broadcast('transcripcion', { texto });
+  recognition.onresult = (e) => {
+    let texto = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      texto += e.results[i][0].transcript;
     }
-  } catch (err) {
-    console.error('Whisper error:', err);
-    mostrarToast('Error al transcribir, intenta de nuevo');
-  }
+    document.getElementById('live-text').textContent = texto;
+    broadcast('transcripcion', { texto });
+  };
 
-  micRing.style.opacity = '1';
-  document.getElementById('mic-label').textContent = 'Mantén presionado para hablar';
-  document.getElementById('mic-status').innerHTML =
-    '<span style="color:var(--green);font-size:11px">● Whisper listo · 100% privado</span>';
-  broadcast('transcripcion_fin', {});
+  recognition.onend = () => {
+    if (grabando) recognition.start();
+  };
+
+  recognition.start();
+  grabando = true;
+  document.getElementById('mic-ring').classList.add('grabando');
+  document.getElementById('mic-ring').textContent = '⏹';
+  document.getElementById('mic-label').textContent = 'Grabando… tus visitantes te escuchan';
+  document.getElementById('mic-status').textContent = '● EN VIVO';
 }
 
 function detenerGrabacion() {
-  if (grabando) detenerYTranscribir();
+  if (recognition) { recognition.stop(); recognition = null; }
+  grabando = false;
+  document.getElementById('mic-ring').classList.remove('grabando');
+  document.getElementById('mic-ring').textContent = '🎙️';
+  document.getElementById('mic-label').textContent = 'Presiona para hablar al grupo';
+  document.getElementById('mic-status').textContent = '';
+  broadcast('transcripcion_fin', {});
 }
-
-// ── COMPATIBILIDAD (ya no necesaria con Whisper, se mantiene por si acaso) ──
-function verificarNavegador() { return true; }
-
 
 // ── RECEPTOR: RUTA ──
 function renderRutaReceptor() {
@@ -1081,5 +981,6 @@ if ('serviceWorker' in navigator) {
 </script>
 </body>
 </html>
+
 
 
